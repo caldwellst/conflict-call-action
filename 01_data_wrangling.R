@@ -155,15 +155,51 @@ df_fts <- map(
 #### INFORM 2021 ####
 #####################
 
-df_inform_2021 <- read_csv(
-  file.path(
-    "input",
-    "inform_severity_2021.csv"
-  )
+download.file(
+  url = "https://drmkc.jrc.ec.europa.eu/inform-index/Portals/0/InfoRM/Severity/2022/20220204_inform_severity_-_january_2022.xlsx",
+  destfile = f <- tempfile(fileext = ".xlsx")
+)
+
+df_inform_2021 <- read_excel(
+  f,
+  sheet = "INFORM Severity - country",
+  skip = 1
 ) %>%
+  tail(
+    -2
+  ) %>%
   transmute(
-    iso3,
-    inform_severity_2021 = as.numeric(inform_severity)
+    iso3 = ISO3,
+    inform_severity_2021 = as.numeric(`INFORM Severity Index`)
+  )
+
+# get displacement data
+df_inform_2021 <- read_excel(
+  f,
+  sheet = "Impact of the crisis",
+  skip = 1
+) %>%
+  tail(
+    -3
+  ) %>%
+  transmute(
+    iso3 = `...5`,
+    inform_displaced = `People displaced`
+  ) %>%
+  separate_longer_delim(
+    cols = iso3,
+    delim = ","
+  ) %>%
+  group_by(
+    iso3
+  ) %>%
+  summarize(
+    inform_displacement_2021 = mean(as.numeric(inform_displaced), na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  full_join(
+    df_inform_2021,
+    by = "iso3"
   )
 
 #########################

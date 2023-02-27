@@ -47,12 +47,20 @@ df_fin_plot <- df %>%
   ) %>%
   summarize(
     funding = sum(funding),
+    requirements = sum(requirements),
     .groups = "drop_last"
   ) %>%
   mutate(
     funding_pct = funding / sum(funding),
+    requirements_pct = requirements / sum(requirements),
     funding_real = adjust_for_inflation(
       price = funding,
+      from_date = as.Date(paste0(year, "-06-01")),
+      country = "US",
+      to_date = as.Date("2021-12-31")
+    ),
+    requirements_real = adjust_for_inflation(
+      price = requirements,
       from_date = as.Date(paste0(year, "-06-01")),
       country = "US",
       to_date = as.Date("2021-12-31")
@@ -102,6 +110,47 @@ ggsave(
   units = "cm"
 )
 
+# look at requirements instead of actual funding
+df_fin_plot %>%
+  ggplot() +
+  geom_area(
+    aes(
+      x = year,
+      y = requirements_real,
+      group = inform_class,
+      fill = inform_class
+    ),
+    color = "white",
+    linewidth = 0.3,
+    alpha = 0.8
+  )+
+  scale_y_continuous(
+    labels = scales::number_format(
+      scale = 1 / 10^9,
+      prefix = "$",
+      suffix = "B")
+  ) +
+  labs(
+    y = "Requirements (2021 dollars)",
+    x = "",
+    title = "Humanitarian funding by crisis type, 2015 to 2022",
+    fill = "",
+    caption = "Data from the UN OCHA Financial Tracking Service, https://fts.unocha.org"
+  ) +
+  theme(
+    legend.box.margin = margin(-15, 0, 0, 0)
+  )
+
+ggsave(
+  filename = file.path(
+    "plots",
+    "requirements_real.png"
+  ),
+  width = 6,
+  height = 5,
+  units = "cm"
+)
+
 # Looking as % of total contribution
 
 df_fin_plot %>%
@@ -135,6 +184,44 @@ ggsave(
   filename = file.path(
     "plots",
     "funding_pct.png"
+  ),
+  width = 6,
+  height = 5,
+  units = "cm"
+)
+# Looking at requirements instead of actual funding
+
+df_fin_plot %>%
+  ggplot() +
+  geom_area(
+    aes(
+      x = year,
+      y = requirements_pct,
+      group = inform_class,
+      fill = inform_class
+    ),
+    color = "white",
+    linewidth = 0.3,
+    alpha = 0.8
+  ) +
+  scale_y_continuous(
+    labels = scales::label_percent()
+  ) +
+  labs(
+    y = "Required funding (% of yearly total)",
+    x = "",
+    title = "Humanitarian funding by crisis type, 2015 to 2022",
+    fill = "",
+    caption = "Data from the UN OCHA Financial Tracking Service, https://fts.unocha.org"
+  ) +
+  theme(
+    legend.box.margin = margin(-15, 0, 0, 0)
+  )
+
+ggsave(
+  filename = file.path(
+    "plots",
+    "requirements_pct.png"
   ),
   width = 6,
   height = 5,
@@ -227,6 +314,9 @@ sf_disp <- sf_inform %>%
   ) 
 
 sf_disp %>%
+  filter(
+    !is.na(inform_displacement)
+  ) %>%
   ggplot() +
   geom_point(
     aes(
