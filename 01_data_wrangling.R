@@ -4,74 +4,6 @@ library(rhdx)
 library(readxl)
 library(sf)
 
-###################
-#### UCDP DATA ####
-###################
-
-download.file(
-  url = "https://ucdp.uu.se/downloads/ged/ged221-RData.zip",
-  destfile = f <- tempfile()
-)
-
-# load the data into the environment
-unzip(f, list = TRUE) %>%
-  pull(Name) %>%
-  unz(description = f, filename = .) %>%
-  load(envir = globalenv())
-
-df_conflict <- GEDEvent_v22_1 %>%
-  mutate(
-    iso3 = countrycode(
-      sourcevar = country_id,
-      origin = "gwn",
-      destination = "iso3c"
-    )
-  ) %>%
-  group_by(
-    iso3,
-    year
-  ) %>%
-  summarize(
-    events = n(),
-    fatalities = sum(best),
-    .groups = "drop"
-  ) %>%
-  filter(
-    !is.na(iso3)
-  ) %>%
-  complete(
-    iso3 = unique(c(iso3, df_fts$iso3)),
-    year = 1989:2021,
-    fill = list(
-      events = 0,
-      fatalities = 0
-    )
-  ) %>%
-  mutate(
-    conflict_dummy = ifelse(
-      events > 0,
-      "Countries with conflict",
-      "Other countries"
-    )
-  )
-
-# join to the conflict dataset when reading in the shapefiles
-sf_conf_2021 <- GEDEvent_v22_1 %>%
-  filter(
-    year == 2021
-  ) %>%
-  st_as_sf(coords = c("longitude", "latitude"))
-
-st_crs(sf_conf_2021) <- 4326
-
-write_sf(
-  sf_conf_2021,
-  file.path(
-    "data",
-    "sf_conflict.gpkg"
-  )
-)
-
 ##########################
 #### FTS FUNDING DATA ####
 ##########################
@@ -150,6 +82,74 @@ df_fts <- map(
       funding = 0
     )
   )
+
+###################
+#### UCDP DATA ####
+###################
+
+download.file(
+  url = "https://ucdp.uu.se/downloads/ged/ged221-RData.zip",
+  destfile = f <- tempfile()
+)
+
+# load the data into the environment
+unzip(f, list = TRUE) %>%
+  pull(Name) %>%
+  unz(description = f, filename = .) %>%
+  load(envir = globalenv())
+
+df_conflict <- GEDEvent_v22_1 %>%
+  mutate(
+    iso3 = countrycode(
+      sourcevar = country_id,
+      origin = "gwn",
+      destination = "iso3c"
+    )
+  ) %>%
+  group_by(
+    iso3,
+    year
+  ) %>%
+  summarize(
+    events = n(),
+    fatalities = sum(best),
+    .groups = "drop"
+  ) %>%
+  filter(
+    !is.na(iso3)
+  ) %>%
+  complete(
+    iso3 = unique(c(iso3, df_fts$iso3)),
+    year = 1989:2021,
+    fill = list(
+      events = 0,
+      fatalities = 0
+    )
+  ) %>%
+  mutate(
+    conflict_dummy = ifelse(
+      events > 0,
+      "Countries with conflict",
+      "Other countries"
+    )
+  )
+
+# join to the conflict dataset when reading in the shapefiles
+sf_conf_2021 <- GEDEvent_v22_1 %>%
+  filter(
+    year == 2021
+  ) %>%
+  st_as_sf(coords = c("longitude", "latitude"))
+
+st_crs(sf_conf_2021) <- 4326
+
+write_sf(
+  sf_conf_2021,
+  file.path(
+    "data",
+    "sf_conflict.gpkg"
+  )
+)
 
 #####################
 #### INFORM 2021 ####
@@ -292,10 +292,21 @@ sf_inform <- read_sf(f) %>%
   st_as_sf()
 
 # add conflict to the data
-sf_inform$conflict_events <- sapply(st_intersects(sf_inform, sf_conf_2021), length)
+sf_inform_conf <- st_join(sf_inform, sf_conf_2021 %>% select(-region)) %>%
+  group_by(
+    across(
+      geo_point_2d:inform_displacement
+    )
+  ) %>%
+  summarize(
+    conflict_events = sum(!is.na(best)),
+    best = sum(best),
+    deaths_civilians = sum(deaths_civilians),
+    .groups = "drop"
+  )
 
 write_sf(
-  sf_inform,
+  sf_inform_conf,
   file.path(
     "data",
     "sf_inform.gpkg"
@@ -490,7 +501,20 @@ sf_use_s2(FALSE)
 
 sf_pin$conflict_events <- sapply(st_intersects(sf_pin, sf_conf_2021), length)
 
-sf_pin %>%
+sf_pin_conf <- st_join(sf_pin, sf_conf_2021) %>%
+  group_by(
+    across(
+      admin_code:pin_pct
+    )
+  ) %>%
+  summarize(
+    conflict_events = sum(!is.na(best)),
+    best = sum(best),
+    deaths_civilians = sum(deaths_civilians),
+    .groups = "drop"
+  )
+
+sf_pin_conf %>%
   write_sf(
     file.path(
       "data",
