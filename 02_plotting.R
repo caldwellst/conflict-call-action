@@ -94,7 +94,10 @@ df_fin_plot %>%
     x = "",
     title = "Humanitarian funding by crisis type, 2015 to 2022",
     fill = "",
-    caption = "Data from the UN OCHA Financial Tracking Service, https://fts.unocha.org"
+    caption = paste0(
+      "Data from the UN OCHA Financial Tracking Service, https://fts.unocha.org.\n",
+      "Crisis classification from INFORM Severity, https://drmkc.jrc.ec.europa.eu/inform-index/INFORM-Severity."
+    )
   ) +
   theme(
     legend.box.margin = margin(-15, 0, 0, 0)
@@ -133,9 +136,12 @@ df_fin_plot %>%
   labs(
     y = "Requirements (2021 dollars)",
     x = "",
-    title = "Humanitarian funding by crisis type, 2015 to 2022",
+    title = "Humanitarian funding requirements by crisis type, 2015 to 2022",
     fill = "",
-    caption = "Data from the UN OCHA Financial Tracking Service, https://fts.unocha.org"
+    caption = paste0(
+      "Funding data from the UN OCHA Financial Tracking Service, https://fts.unocha.org.\n",
+      "Crisis classification from INFORM Severity, https://drmkc.jrc.ec.europa.eu/inform-index/INFORM-Severity."
+    )
   ) +
   theme(
     legend.box.margin = margin(-15, 0, 0, 0)
@@ -174,7 +180,10 @@ df_fin_plot %>%
     x = "",
     title = "Humanitarian funding by crisis type, 2015 to 2022",
     fill = "",
-    caption = "Data from the UN OCHA Financial Tracking Service, https://fts.unocha.org"
+    caption = paste0(
+      "Data from the UN OCHA Financial Tracking Service, https://fts.unocha.org.\n",
+      "Crisis classification from INFORM Severity, https://drmkc.jrc.ec.europa.eu/inform-index/INFORM-Severity."
+    )
   ) +
   theme(
     legend.box.margin = margin(-15, 0, 0, 0)
@@ -210,9 +219,12 @@ df_fin_plot %>%
   labs(
     y = "Required funding (% of yearly total)",
     x = "",
-    title = "Humanitarian funding by crisis type, 2015 to 2022",
+    title = "Humanitarian funding requirements by crisis type, 2015 to 2022",
     fill = "",
-    caption = "Data from the UN OCHA Financial Tracking Service, https://fts.unocha.org"
+    caption = paste0(
+      "Data from the UN OCHA Financial Tracking Service, https://fts.unocha.org.\n",
+      "Crisis classification from INFORM Severity, https://drmkc.jrc.ec.europa.eu/inform-index/INFORM-Severity."
+    )
   ) +
   theme(
     legend.box.margin = margin(-15, 0, 0, 0)
@@ -379,6 +391,10 @@ df_wpp <- read_csv(
   )
 )
 
+# use area to normalize events
+sf_use_s2(FALSE)
+sf_pin$area_km2 <- as.numeric(st_area(sf_pin) * 1e-6)
+
 df_pin_iso3 <- sf_pin %>%
   mutate(
     iso3 = countrycode::countrycode(
@@ -396,6 +412,9 @@ df_pin_iso3 <- sf_pin %>%
     pin = sum(pin),
     conflict_events = sum(conflict_events),
     affected_population = sum(affected_population),
+    best = sum(best),
+    deaths_civilians = sum(deaths_civilians),
+    area_km2 = sum(area_km2),
     .groups = "drop"
   ) %>%
   left_join(
@@ -403,7 +422,12 @@ df_pin_iso3 <- sf_pin %>%
   ) %>%
   mutate(
     pin_pct = pin / affected_population,
-    pin_pct_wpp = pin / population
+    pin_pct_wpp = pin / population,
+    pin_pct_best = ifelse(
+      iso3 %in% c("NGA", "MOZ"),
+      pin_pct, # only subnational crises in our data
+      pin_pct_wpp # otherwise use this pct
+    )
   )
 
 # admin 1 plot
@@ -452,15 +476,129 @@ ggsave(
   units = "cm"
 )
 
+# normalize by area
+
+sf_pin %>%
+  ggplot() +
+  geom_point(
+    aes(
+      x = conflict_events / area_km2,
+      y = pin_pct
+    ),
+    color = hdx_hex("tomato-hdx"),
+    alpha = 0.3,
+    shape = 16,
+    size = 0.8
+  ) +
+  scale_x_log10() +
+  scale_y_continuous(
+    labels = scales::label_percent()
+  ) +
+  labs(
+    x = "Conflict events per sq. km.",
+    y = "People in need (% of population)",
+    title = "Relationship between conflict and humanitarian need",
+    subtitle = "Conflict and need measured at admin 1 level in 14 countries",
+    caption = paste(
+      "Data on conflict sourced from the UCDP Dataset Download Center, https://ucdp.uu.se/downloads/index.html.\n",
+      "Data on humanitarian need sourced from private UN OCHA data, with some public data on https://data.humdata.org.",
+      collapse = ""
+    )
+  ) +
+  coord_cartesian(
+    clip = "off"
+  ) +
+  theme(
+    plot.caption = element_text(lineheight = 0.5, hjust = 1, size = 8, margin = margin(5, 0, 0, 0)),
+  )
+
+ggsave(
+  filename = file.path(
+    "plots",
+    "pin_adm1_sqkm.png"
+  ),
+  width = 5.5,
+  height = 5,
+  units = "cm"
+)
+
+# look at country level normalized by square kilometers
+
+df_pin_iso3 %>%
+  ggplot(
+    aes(
+      x = conflict_events / area_km2,
+      y = pin_pct_best
+    )
+  ) +
+  geom_point(
+    aes(
+      color = log10(best)
+    ),
+    size = 0.5
+  ) +
+  geom_text_hdx(
+    aes(
+      label = iso3
+    ),
+    nudge_y = 0.05
+  ) + 
+  scale_x_log10() +
+  scale_y_continuous(
+    labels = scales::label_percent()
+  ) +
+  labs(
+    x = "Conflict events per sq. km.",
+    y = "People in need (% of population)",
+    title = "Relationship between conflict and humanitarian need",
+    color = expression(log[10]*" of fatalities"),
+    subtitle = "Conflict and need measured at the country level",
+    caption = paste(
+      "Data on conflict sourced from the UCDP Dataset Download Center, https://ucdp.uu.se/downloads/index.html.\n",
+      "Data on humanitarian need sourced from private UN OCHA data, with some public data on https://data.humdata.org.",
+      collapse = ""
+    )
+  ) +
+  coord_cartesian(
+    clip = "off"
+  )  +
+  theme(
+    plot.caption = element_text(lineheight = 0.5, hjust = 1, size = 8, margin = margin(5, 0, 0, 0)),
+    legend.key.size = unit(0.2, "cm"),
+    legend.key = element_rect(
+      linewidth = 1
+    ),
+    legend.box.margin = margin(-11, 0, -6, 0)
+  ) +
+  scale_color_gradient(
+    low = "white",
+    high = hdx_hex("tomato-hdx"),
+    limits = c(0, 5)
+  )
+
+ggsave(
+  filename = file.path(
+    "plots",
+    "pin_iso3_sqkm.png"
+  ),
+  width = 5.5,
+  height = 5.5,
+  units = "cm"
+)
+
+# look at country level
+
 df_pin_iso3 %>%
   ggplot(
     aes(
       x = conflict_events,
-      y = pin_pct_wpp
+      y = pin_pct_best
     )
   ) +
   geom_point(
-    color = hdx_hex("tomato-hdx"),
+    aes(
+      color = log10(best)
+    ),
     size = 0.5
   ) +
   geom_text_hdx(
@@ -476,6 +614,7 @@ df_pin_iso3 %>%
   labs(
     x = "# of conflict events",
     y = "People in need (% of population)",
+    color = expression(log[10]*" of fatalities"),
     title = "Relationship between conflict and humanitarian need",
     subtitle = "Conflict and need measured at the country level",
     caption = paste(
@@ -489,6 +628,16 @@ df_pin_iso3 %>%
   )  +
   theme(
     plot.caption = element_text(lineheight = 0.5, hjust = 1, size = 8, margin = margin(5, 0, 0, 0)),
+    legend.key.size = unit(0.2, "cm"),
+    legend.key = element_rect(
+      linewidth = 1
+    ),
+    legend.box.margin = margin(-11, 0, -6, 0)
+  ) +
+  scale_color_gradient(
+    low = "white",
+    high = hdx_hex("tomato-hdx"),
+    limits = c(0, 5)
   )
 
 ggsave(
@@ -497,7 +646,6 @@ ggsave(
     "pin_iso3.png"
   ),
   width = 5.5,
-  height = 5,
+  height = 5.5,
   units = "cm"
 )
-

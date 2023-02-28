@@ -300,8 +300,8 @@ sf_inform_conf <- st_join(sf_inform, sf_conf_2021 %>% select(-region)) %>%
   ) %>%
   summarize(
     conflict_events = sum(!is.na(best)),
-    best = sum(best),
-    deaths_civilians = sum(deaths_civilians),
+    best = sum(best, na.rm = TRUE),
+    deaths_civilians = sum(deaths_civilians, na.rm = TRUE),
     .groups = "drop"
   )
 
@@ -499,8 +499,6 @@ sf_pin <- map(
 # needed due to some geometry errors when intersecting
 sf_use_s2(FALSE)
 
-sf_pin$conflict_events <- sapply(st_intersects(sf_pin, sf_conf_2021), length)
-
 sf_pin_conf <- st_join(sf_pin, sf_conf_2021) %>%
   group_by(
     across(
@@ -509,8 +507,8 @@ sf_pin_conf <- st_join(sf_pin, sf_conf_2021) %>%
   ) %>%
   summarize(
     conflict_events = sum(!is.na(best)),
-    best = sum(best),
-    deaths_civilians = sum(deaths_civilians),
+    best = sum(best, na.rm = TRUE),
+    deaths_civilians = sum(deaths_civilians, na.rm = TRUE),
     .groups = "drop"
   )
 
