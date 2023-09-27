@@ -8,6 +8,7 @@ library(sf)
 #### FTS FUNDING DATA ####
 ##########################
 
+#' Scrape data from HDX
 resource_extractor <- function(dataset, query) {
   suppressMessages(
     get_resources(dataset, pattern = query) %>%
@@ -16,35 +17,8 @@ resource_extractor <- function(dataset, query) {
   )
 }
 
+#' Don't generate errors if resource unavailable
 poss_extractor <- possibly(.f = resource_extractor, otherwise = NULL)
-
-df_fts_cluster <- map(
-  .x = search_datasets(
-    query = "Requirements and Funding Data",
-    rows = 300L
-  ),
-  .f = poss_extractor,
-  query = "fts_requirements_funding_globalcluster"
-) %>%
-  list_rbind() %>%
-  mutate(
-    cluster_clean = case_when(
-      cluster == "Not specified" ~ "Other",
-      str_detect(cluster, "Protection") ~ "Protection",
-      clusterCode > 20 ~ "Other",
-      TRUE ~ cluster
-    )
-  ) %>%
-  group_by(
-    iso3 = countryCode,
-    cluster = cluster_clean,
-    year
-  ) %>%
-  summarize(
-    requirements = sum(requirements, na.rm = TRUE),
-    funding = sum(funding, na.rm = TRUE),
-    .groups = "drop"
-  )
 
 # getting the full country-level funding data
 # requires some wrangling to bind rows and drop duplicates
@@ -88,22 +62,25 @@ df_fts <- map(
 ###################
 
 download.file(
-  url = "https://ucdp.uu.se/downloads/ged/ged221-RData.zip",
+  url = "https://ucdp.uu.se/downloads/ged/ged231-rds.zip",
   destfile = f <- tempfile()
 )
 
 # load the data into the environment
-unzip(f, list = TRUE) %>%
-  pull(Name) %>%
-  unz(description = f, filename = .) %>%
-  load(envir = globalenv())
+GEDEvent_v23_1 <- unz(f, filename = "GEDEvent_v23_1.rds") %>%
+  gzcon() %>%
+  readRDS()
 
-df_conflict <- GEDEvent_v22_1 %>%
+df_conflict <- GEDEvent_v23_1 %>%
   mutate(
-    iso3 = countrycode(
-      sourcevar = country_id,
-      origin = "gwn",
-      destination = "iso3c"
+    iso3 = ifelse(
+      country_id == 678,
+      "YEM",
+      countrycode(
+        sourcevar = country_id,
+        origin = "gwn",
+        destination = "iso3c"
+      )
     )
   ) %>%
   group_by(
@@ -120,86 +97,90 @@ df_conflict <- GEDEvent_v22_1 %>%
   ) %>%
   complete(
     iso3 = unique(c(iso3, df_fts$iso3)),
-    year = 1989:2021,
+    year = 1989:2022,
     fill = list(
       events = 0,
       fatalities = 0
     )
+  )
+
+# split PSE fatalities separate from Israel
+# first get the PSE adm0 boundaries
+sf_pse <- pull_dataset("cod-ab-pse") %>%
+  get_resources() %>%
+  pluck(3) %>%
+  read_resource() %>%
+  st_as_sf()
+
+# join to the conflict dataset when reading in the shapefiles
+df_conflict_pse <- GEDEvent_v23_1 %>%
+  filter(
+    country_id == 666
+  ) %>%
+  st_as_sf(coords = c("longitude", "latitude"), crs = 4326) %>%
+  filter(
+    as.logical(
+      st_intersects(
+        .,
+        sf_pse,
+        sparse = FALSE
+      )
+    )
   ) %>%
   mutate(
-    conflict_dummy = ifelse(
-      events > 0,
-      "Countries with conflict",
-      "Other countries"
+    iso3 = "PSE"
+  ) %>%
+  as_tibble() %>%
+  group_by(
+    iso3,
+    year
+  ) %>%
+  summarize(
+    events = n(),
+    fatalities = sum(best),
+    .groups = "drop"
+  ) %>%
+  complete(
+    year = 1989:2022,
+    fill = list(
+      events = 0,
+      fatalities = 0
     )
   )
 
-# join to the conflict dataset when reading in the shapefiles
-sf_conf_2021 <- GEDEvent_v22_1 %>%
+# subtract the PSE data from ISR
+df_conflict_isr <- df_conflict %>%
   filter(
-    year == 2021
+    iso3 == "ISR"
   ) %>%
-  st_as_sf(coords = c("longitude", "latitude"))
-
-st_crs(sf_conf_2021) <- 4326
-
-write_sf(
-  sf_conf_2021,
-  file.path(
-    "data",
-    "sf_conflict.gpkg"
-  )
-)
-
-#####################
-#### INFORM 2021 ####
-#####################
-
-download.file(
-  url = "https://drmkc.jrc.ec.europa.eu/inform-index/Portals/0/InfoRM/Severity/2022/20220204_inform_severity_-_january_2022.xlsx",
-  destfile = f <- tempfile(fileext = ".xlsx")
-)
-
-df_inform_2021 <- read_excel(
-  f,
-  sheet = "INFORM Severity - country",
-  skip = 1
-) %>%
-  tail(
-    -2
+  left_join(
+    select(
+      df_conflict_pse,
+      year,
+      events_pse = events,
+      fatalities_pse = fatalities
+    ),
+    by = "year"
   ) %>%
-  transmute(
-    iso3 = ISO3,
-    inform_severity_2021 = as.numeric(`INFORM Severity Index`)
+  mutate(
+    events = events - events_pse,
+    fatalities = fatalities - fatalities_pse
+  ) %>%
+  select(
+    -ends_with("pse")
   )
 
-# get displacement data
-df_inform_2021 <- read_excel(
-  f,
-  sheet = "Impact of the crisis",
-  skip = 1
-) %>%
-  tail(
-    -3
+df_conflict <- df_conflict %>%
+  filter(
+    !(iso3 %in% c("ISR", "PSE"))
   ) %>%
-  transmute(
-    iso3 = `...5`,
-    inform_displaced = `People displaced`
+  bind_rows(
+    df_conflict_pse,
+    df_conflict_isr
   ) %>%
-  separate_longer_delim(
-    cols = iso3,
-    delim = ","
-  ) %>%
-  group_by(
-    iso3
-  ) %>%
-  summarize(
-    inform_displacement_2021 = mean(as.numeric(inform_displaced), na.rm = TRUE),
-    .groups = "drop"
-  ) %>%
-  full_join(
-    df_inform_2021,
-    by = "iso3"
+  arrange(
+    iso3,
+    year
   )
 
 #########################
@@ -245,26 +226,8 @@ df_inform <- read_excel(
       conflict_crisis ~ "Conflict",
       other_crisis ~ "Other"
     ),
-    inform_severity = as.numeric(`INFORM Severity Index`)
-  )
-
-# displacement score
-
-df_inform_disp <- read_excel(
-  f,
-  sheet = "Impact of the crisis",
-  skip = 4
-) %>%
-  transmute(
-    iso3 = Iso3,
-    inform_displacement = as.numeric(`...23`)
-  ) %>%
-  group_by(
-    iso3
-  ) %>%
-  summarize(
-    inform_displacement = mean(inform_displacement, na.rm = TRUE),
-    .groups = "drop"
+    inform_severity = as.numeric(`INFORM Severity Index`),
+    inform_pin = as.numeric(`People in need`)
   )
   
 ####################
@@ -279,14 +242,6 @@ download.file(
 sf_inform <- read_sf(f) %>%
   left_join(
     df_inform,
-    by = "iso3"
-  ) %>%
-  left_join(
-    df_inform_2021,
-    by = "iso3"
-  ) %>%
-  left_join(
-    df_inform_disp,
     by = "iso3"
   ) %>%
   st_as_sf()
@@ -313,243 +268,63 @@ write_sf(
   )
 )
 
-#####################
-#### GLOBAL NEED ####
-#####################
+######################################
+#### USE GHO TO GET HRP COUNTRIES ####
+######################################
 
-df_pin <- pull_dataset("global-humanitarian-overview-2023") %>%
+df_hrp <- pull_dataset("global-humanitarian-overview-2023") %>%
   get_resource(1) %>%
-  read_resource(sheet = "GHO 2023") %>%
-  slice(-1) %>%
-  head(-2) %>%
-  type_convert() %>%
+  read_resource(sheet = "Export data") %>%
   transmute(
     iso3 = ifelse(
-      Plan != "Rohingya",
-      countryname(Plan, destination = "iso3c"),
+      Plans != "Rohingya (JRP)",
+      countryname(Plans, destination = "iso3c"),
       "BGD"
     ),
-    pin = `People in need`
+    hrp = `Plan type` == "HRP",
+    rrp = `Plan type` == "RRP",
+    hrp_rrp = hrp | rrp,
+    plan = TRUE
   ) %>%
   group_by(
     iso3
   ) %>%
   summarize(
-    pin = sum(pin),
-    year = 2022
+    across(
+      .cols = everything(),
+      .fns = any
+    ),
+    .groups = "drop"
   )
 
-########################
-#### JOINED DATASET ####
-########################
+###################################
+#### CREATE ONE COMMON DATASET ####
+###################################
 
-reduce(
-  list(
-    df_fts,
-    df_conflict,
-    df_pin
-  ),
-  ~ full_join(.x, .y, by = c("iso3", "year"))
+df <- left_join(
+  df_fts,
+  df_inform,
+  by = "iso3"
 ) %>%
-  mutate(
-    across(
-      c(requirements, funding),
-      ~ ifelse(
-        between(year, 2000, 2022),
-        replace_na(.x, 0),
-        .x
-      )
-    )
+  left_join(
+    df_conflict,
+    by = c("iso3", "year")
   ) %>%
-  full_join(
-    df_inform,
+  left_join(
+    df_hrp, 
     by = "iso3"
   ) %>%
-  arrange(
-    iso3,
-    year
-  ) %>%
-  write_csv(
-    file.path(
-      "data",
-      "df_joined.csv"
-    ),
-    na = ""
-  )
-
-################################
-#### CREATING PIN SHAPEFILE ####
-################################
-
-df_pin_sector <- read_csv(
-  file.path(
-    "input",
-    "2022_sectoral_pins.csv"
-  )
-) %>%
-  filter(
-    sector_general == "intersectoral"
-  ) %>%
-  group_by(
-    adm0_pcode,
-    adm1_pcode
-  ) %>%
-  summarize(
-    pin = sum(pin),
-    affected_population = sum(affected_population),
-    pin_pct = pin / affected_population,
-    .groups = "drop"
-  ) %>%
   mutate(
-    admin_level = 1,
-    admin_code = adm1_pcode
-  )
-  
-
-# scrape shapefile data of each of these
-
-codab_reader <- function(iso3, admin_level) {
-  # Afghanistan shapefiles are private, so need to use publicly available ones
-  if (iso3 == "AFG") {
-    sf <- read_sf(file.path("input", "geoBoundaries-AFG-ADM1_simplified.geojson"))
-    adm_pcode <- read_csv(file.path("input", "afg_pcode_map.csv"))
-    
-    sf <- left_join(sf, adm_pcode, "shapeID")
-  } else {
-    iso3 <- tolower(iso3)
-    
-    ds <- pull_dataset(paste0("cod-ab-", iso3))
-    # search patterns for relevant country files
-    pattern <- paste0(
-      "(.*)adm(.*)SHP.zip$|",
-      "(.*)adm(.*)[0-9]{2,}.zip$|",
-      "Administrative Divisions Shapefiles.zip$|",
-      iso3, "(.*)adm", admin_level, "(.*).zip$|",
-      "(.*)_adm_2022_v2.zip"
-    )
-    res <- ds %>%
-      get_resources(pattern = pattern) %>%
-      pluck(1)
-    
-    # download zipped file to tempdir 
-    d <- tempdir()
-    fn <- paste0(iso3, ".zip")
-    
-    zip_path <- file.path(
-      d,
-      fn
-    )
-    
-    download_resource(
-      res,
-      folder = d,
-      filename = fn,
-      force = TRUE
-    )
-    
-    # extract files from the zipped file to the dir
-    unzip(
-      zip_path,
-      exdir = d
-    )
-    
-    # load in the relevant level shapefile
-    fn <- list.files(
-      d,
-      pattern = paste0(
-        iso3, "(.*)adm", admin_level, "(.*).shp$|",
-        iso3, "_admin", str_extract(admin_level, "[1-2]"), ".shp$"
-      ),
-      recursive = TRUE
-    )
-    
-    sf <- read_sf(
-      file.path(
-        d,
-        fn[1]
-      )
-    )
-  }
-  
-  names(sf)[str_detect(names(sf), paste0("(adm|ADM)(.*)", admin_level, "(.*)P(?!T)|^PCODE$"))] <- "admin_code"
-  st_as_sf(sf)
-}
-
-# get list of all adminstrative boundary shapefiles
-shp_list <- df_pin_sector %>%
-  distinct(
-    iso3 = adm0_pcode,
-    admin_level
-  ) %>%
-  pmap(
-    codab_reader
-  )
-
-# clean up the files by creating a singular admin column that matches
-# what is in the `admin_code` column in df_pin_sector
-
-sf_pin <- map(
-  .x = shp_list,
-  .f = ~ select(.x, geometry, admin_code)
-) %>%
-  list_rbind() %>%
-  inner_join(select(df_pin_sector, admin_code, pin, affected_population, pin_pct), by = "admin_code") %>%
-  st_as_sf()
-
-# needed due to some geometry errors when intersecting
-sf_use_s2(FALSE)
-
-sf_pin_conf <- st_join(sf_pin, sf_conf_2021) %>%
-  group_by(
     across(
-      admin_code:pin_pct
-    )
-  ) %>%
-  summarize(
-    conflict_events = sum(!is.na(best)),
-    best = sum(best, na.rm = TRUE),
-    deaths_civilians = sum(deaths_civilians, na.rm = TRUE),
-    .groups = "drop"
-  )
-
-sf_pin_conf %>%
-  write_sf(
-    file.path(
-      "data",
-      "sf_pin.gpkg"
+      hrp:plan,
+      \(x) replace_na(x, FALSE)
     )
   )
 
-####################################
-#### WORLD POPULATION PROSPECTS ####
-####################################
-
-# used for country level needs analysis
-
-download.file(
-  url = "https://population.un.org/wpp/Download/Files/1_Indicators%20(Standard)/EXCEL_FILES/1_General/WPP2022_GEN_F01_DEMOGRAPHIC_INDICATORS_COMPACT_REV1.xlsx",
-  destfile = f <- tempfile(fileext = ".xlsx")
+write_csv(
+  df,
+  file.path(
+    "data",
+    "df_combined.csv"
+  )
 )
-
-df_wpp <- read_excel(
-  f,
-  sheet = "Medium variant",
-  skip = 16,
-  guess_max = 20000
-)
-
-df_wpp %>%
-  filter(
-    !is.na(`ISO3 Alpha-code`),
-    Year == 2022
-  ) %>%
-  transmute(
-    iso3 = `ISO3 Alpha-code`,
-    population = as.numeric(`Total Population, as of 1 July (thousands)`) * 1000
-  ) %>%
-  write_csv(
-    file.path(
-      "data",
-      "wpp.csv"
-    )
-  )

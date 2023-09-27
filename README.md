@@ -1,18 +1,21 @@
 # Conflict Call to Action Paper
 
 This is the codebase for generating plots used in our conflict call to action paper.
-The code pulls in and wrangles data related to displacement, conflict events, humanitarian
-need and severity, and humanitarian funding flows  in `01_data_wrangling.R`. The wrangled
-data is stored in `data/`.
+The code pulls in and wrangles data related to conflict events, humanitarian
+severity of humanitarian conditions, and humanitarian funding flows and response
+locations in `01_data_wrangling.R`. The wrangled data is stored in `data/`.
 
-This wrangled data is then plotted in `02_plotting.R`, with plots stored in `plots/`. Below,
-a description of the methods and necessities for replication are listed.
+This wrangled data is then plotted in `02_plotting.R`, with the primary plot
+stored in `plots/`, and an archive of previous plots in `plots/archive`.
 
-Below, the general analysis is described and then the datasets that feed into the analysis.
+## Plot
 
-## Analysis
+![](plots/combined_plot.png)
 
-For the analysis, 8 plots were generated, described further ahead.
+## Previous analysis
+
+During exploration for the analysis, a number of other plots were explored,
+stored in `plots/archive`.
 
 1. `funding_real.png`: Humanitarian funding (actually provided for response) is
 compared across time for crises that are driven entirely by conflict, complex
@@ -49,11 +52,8 @@ boundaries across 14 countries.
 
 ## Data wrangling
 
-The data used in the analyses is described below.
-
-### Programmatically pulled datasets
-
-Most datasets are pulled in programmatically in the codebase. These are:
+The data used in the analyses is described below. All datasets used in the final
+plot are pulled in programmatically in the codebase. These are:
 
 1. [UN OCHA Financial Tracking Services data](https://fts.unocha.org). The
 FTS tracks reported to funding to humanitarian crises globally. For the analysis,
@@ -70,14 +70,11 @@ of humanitarian crises is measured by the INFORM Severity Index. The data includ
 sub-measures of displacement severity and a list of key drivers of severity that is
 also used to contextualize the crises.
 
-4. [UN World Population Prospects](https://population.un.org/wpp/). The UN WPP
-population estimates for 2022 are used to generate percent of populations in need
-at the country-level in 2022.
+### Previously explored datasets
 
-### Manually inputted datasets
-
-While most inputs datasets are pulled in programmatically, there are a set of
-files stored locally in the repository under `input/`.
+During the exploration, a number of manually loaded datasets were used, as well as
+additional dataset accessed via API. These were stored locally in the repository
+under `input/`.
 
 1. `geoBoundaries-AFG-ADM1_simplified.geojson`: 1st-level administrative boundaries
 for Afghanistan, since the official country boundaries used by the UN are
@@ -87,10 +84,14 @@ not publicly available.
 2. `afg_pcode_map.csv`: Manually created map between the `shapeID` column of the Afghanistan
 shapefile and the PCODEs used by the UN.
 
-3. `2022_sectoral_pins.csv`: Data on people in need in 2022 as estimated by the
+3. `2022_sectoral_pins.csv`: Data on people in need in 2022 as estimated by
 UN OCHA. The file is more granular and detailed than publicly available, and
 thus cannot be shared publicly. The data for each country individually can
 be sourced individually from [HDX](https://data.humdata.org/dataset).
+
+4. [UN World Population Prospects](https://population.un.org/wpp/). The UN WPP
+population estimates for 2022 were used to generate percent of populations in need
+at the country-level in 2022.
 
 ## Reproducibility
 
