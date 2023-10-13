@@ -75,39 +75,7 @@ p_fin_plot <- df_fin_plot %>%
   labs(
     y = "Funding (2021 dollars)",
     x = "",
-    title = bquote(bold("a)")~"Humanitarian funding, 2021 dollars, 2015 to 2022"),
-    fill = ""
-  ) +
-  theme(
-    legend.box.margin = margin(-15, 0, 0, 0),
-    plot.title = element_text(size = 30),
-    axis.text = element_text(size = 20),
-    axis.title = element_text(size = 24),
-    legend.text = element_text(size = 20)
-  )
-
-# Looking as % of total contribution
-
-p_fin_pct <- df_fin_plot %>%
-  ggplot() +
-  geom_area(
-    aes(
-      x = year,
-      y = funding_pct,
-      group = inform_class,
-      fill = inform_class
-    ),
-    color = "white",
-    linewidth = 0.3,
-    alpha = 0.8
-  ) +
-  scale_y_continuous_hdx(
-    labels = scales::label_percent()
-  ) +
-  labs(
-    y = "Funding (% of global total)",
-    x = "",
-    title = bquote(bold("b)")~"Humanitarian funding, percent of annual funding, 2015 to 2022"),
+    title = bquote(bold("Humanitarian funding, 2021 dollars, 2015 to 2022")),
     fill = ""
   ) +
   theme(
@@ -187,7 +155,7 @@ p_conflict_sev <- df_conflict_sev %>%
     x = "Conflict fatalities, 2013 - 2022",
     y = "INFORM Severity",
     color = "",
-    title = bquote(bold("c)")~"Severity of humanitarian conditions and intensity of conflict")
+    title = bquote(bold("Severity of humanitarian conditions and intensity of conflict"))
   ) +
   theme(
     plot.title = element_text(size = 30),
@@ -200,18 +168,7 @@ p_conflict_sev <- df_conflict_sev %>%
 #### PATCHWORK PLOT ####
 ########################
 
-p_combined <- (p_fin_plot + p_fin_pct) / (p_conflict_sev + plot_spacer()) +
-  plot_annotation(
-    caption = paste0(
-      "Financial data from the UN OCHA Financial Tracking Service, https://fts.unocha.org.\n",
-      "Severity measure and crisis classification from INFORM Severity January 2023, https://drmkc.jrc.ec.europa.eu/inform-index/INFORM-Severity.\n",
-      "Conflict fatalities from UCDP Georeferenced Event Dataset (GED) Global version 23.1, https://ucdp.uu.se/downloads/.\n",
-      "Humanitarian and regional response plans were pulled from the Global Humanitarian Overview, https://humanitarianaction.info/overview/2023."
-    ),
-    theme = theme(
-      plot.caption = element_text(size = 18, hjust = 1, lineheight = 0.3)
-    )
-  )
+p_combined <- p_fin_plot + p_conflict_sev
 
 ggsave(
   filename = file.path(
