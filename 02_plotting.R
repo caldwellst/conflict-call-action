@@ -177,7 +177,7 @@ ggsave(
   ),
   plot = p_combined,
   width = 9,
-  height = 7,
+  height = 4,
   units = "in",
   device = ragg::agg_png
 )
